@@ -10,7 +10,7 @@
 #include <algorithm>
 
 enum command_t {HELP = 0, DRAW, INFECT, EPIDEMIC, EPIDEMIC_STATS,
-				INFECT_STATS, CARD_STATS, TURNS_LEFT, N_COMMANDS};
+				INFECT_STATS, CARD_STATS, N_COMMANDS};
 command_t parse_command(const std::string &command);
 
 const char * commands[] = {
@@ -20,8 +20,7 @@ const char * commands[] = {
 	[EPIDEMIC_STATS] = "epidemic_stats",
 	[EPIDEMIC] = "epidemic",
 	[INFECT_STATS] = "infect_stats",
-	[CARD_STATS] = "card_stats",
-	[TURNS_LEFT] = "turns"
+	[CARD_STATS] = "card_stats"
 };
 
 enum color_t {YELLOW = 0, RED, BLUE, BLACK, EVENT, N_COLORS};
@@ -83,6 +82,21 @@ std::ostream& operator<< (std::ostream &out, std::vector<T> &v)
 	return out;
 }
 
+std::ostream& operator<< (std::ostream &out, 
+						  const std::pair<const LazyString, color_t> &card)
+{
+	static const char * color_codes[] = {
+		[YELLOW] = "\e[43m",
+		[RED] = "\e[41m",
+		[BLUE] = "\e[44m",
+		[BLACK] = "\e[100m",
+		[EVENT] = "\\e[42m",
+		[N_COLORS] = "\e[49m"
+	};
+	
+	return out << color_codes[card.second] << card.first << color_codes[N_COLORS];
+}
+
 std::vector<std::string> get_cards(std::istream &in)
 {
 	std::vector<std::string> ret;
@@ -125,16 +139,16 @@ int run(std::istream& in)
 	for(auto event : events)
 		cities.insert(std::make_pair(event, EVENT));
 	
-	int cards_per_epidemic = (cities.size() - initial_draws + epidemics) / epidemics;
-	int big_stacks = (cities.size() - initial_draws + epidemics) - 
-					cards_per_epidemic * epidemics;
+	int total_cards = cities.size() - initial_draws + epidemics;
+	int cards_per_epidemic = total_cards / epidemics;
+	int big_stacks = total_cards - cards_per_epidemic * epidemics;
 	int n_draws = -8;
 	int current_epidemics = 0;
 	
 	auto player_deck(cities);
 	decltype(player_deck) player_drawn;
 	
-	auto ambig = [cities](const std::string &draw)
+	auto ambig = [&cities](const std::string &draw)
 	{
 		auto range = cities.equal_range(draw);
 		int ret = 0;
@@ -143,7 +157,7 @@ int run(std::istream& in)
 			// ambiguous city
 			std::cout << draw << " was ambiguous. Could be: ";
 			for(auto it = range.first; it != range.second; ++it)
-				std::cout << it->first << ", ";
+				std::cout << *it << ", ";
 			std::cout << "\b\b." << std::endl;
 		}
 		else if(ret == 0)
@@ -172,7 +186,7 @@ int run(std::istream& in)
 					if(auto card = infection_deck.back().find(infect);
 					   card != infection_deck.back().end())
 					{
-						std::cout << "Infecting: " << card->first << std::endl;
+						std::cout << "Infecting: " << *card << std::endl;
 						infection_discard.insert(std::move(*card));
 						infection_deck.back().erase(card);
 						if(infection_deck.back().size() == 0)
@@ -180,8 +194,8 @@ int run(std::istream& in)
 					}
 					else
 					{
-						std::cout << "error: could not find " << infect;
-						std::cout << " in any deck." << std::endl;
+						std::cout << "error: " << infect;
+						std::cout << " is not at the top of the deck." << std::endl;
 					}
 				}
 				
@@ -190,50 +204,60 @@ int run(std::istream& in)
 		case DRAW:
 			{
 				std::vector<std::string> draws = get_cards(in);
-				bool epidemic = false;
 				
 				for(const auto &draw : draws)
 				{
-					if(LazyString(draw) == LazyString("epidemic"))
-					{
-						if(epidemic)  // in case user does double epidemic
-						{
-							current_epidemics++;
-							n_draws++;
-						}
-						
-						epidemic = true;
-						continue;
-					}
-					
 					if(ambig(draw) != 1) continue;
 					
 					if(auto card = player_deck.find(draw);
 						card != player_deck.end())
 					{
-						std::cout << "Drew " << card->first << std::endl;
+						std::cout << "Drew " << *card << std::endl;
 						player_drawn.insert(std::move(*card));
 						player_deck.erase(card);
 						n_draws++;
 					}
 					else
 					{
-						std::cout << "error: " << player_drawn.find(draw)->first;
+						std::cout << "error: " << *player_drawn.find(draw);
 						std::cout << " was already drawn" << std::endl;
 					}
 				}
 				
 				std::cout << n_draws << " draws so far." << std::endl;
-				
-				if(!epidemic)
-					break;
+				break;
 			}
 		case EPIDEMIC:
-			current_epidemics++;
-			n_draws++;
-			std::cout << "Epidemic " << current_epidemics << std::endl;
+			{
+				current_epidemics++;
+				n_draws++;
+				std::cout << "Epidemic " << current_epidemics << std::endl;
+				std::string infection;
+				while(true)
+				{
+					do
+					{
+						std::cout << "(infect from bottom) ";
+						in >> infection;
+					} while(ambig(infection) != 1);
+					
+					if(infection_deck.front().count(infection) == 0)
+						std::cout << "error: That card is not in the bottom deck" << std::endl;
+					else
+						break;
+				}
+				
+				auto card = infection_deck.front().find(infection);
+				std::cout << "Infecting " << *card << std::endl;
+				infection_discard.insert(std::move(*card));
+				infection_deck.push_back(std::move(infection_discard));
+				infection_discard.clear();
+			}
 		case EPIDEMIC_STATS:
 			{
+				std::cout << "Epidemics so far: " << current_epidemics << std::endl;
+				std::cout << "Draws left: " << total_cards - n_draws << std::endl;
+				std::cout << "Turns left: " << (total_cards - n_draws) / 2 << std::endl;
 				int safe_phase = 0;
 				if(current_epidemics < big_stacks)
 					safe_phase = current_epidemics * (cards_per_epidemic + 1);
@@ -266,6 +290,25 @@ int run(std::istream& in)
 				
 				break;
 			}
+		case INFECT_STATS:
+			std::cout << "Infection Discard: {";
+			for(auto i : infection_discard)
+				std::cout << i << ", ";
+			std::cout << "}\n" << std::endl;
+			
+			std::cout << "The next infections are:" << std::endl;
+			for(auto i = infection_deck.rbegin(); i != infection_deck.rend(); ++i)
+			{
+				std::cout << "{";
+				for(auto j : *i)
+					std::cout << j << ", ";
+				std::cout << "}\n" << std::endl;
+			}
+			
+			break;
+		case CARD_STATS:
+			std::cout << "Infection Discard: ";
+			break;
 		default:
 			std::cout << "error: invalid command" << std::endl;
 			break;
