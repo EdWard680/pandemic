@@ -9,6 +9,10 @@
 #include <cctype>
 #include <algorithm>
 
+#include "Console.hpp"
+
+using namespace CppReadline;
+
 enum command_t {HELP = 0, DRAW, INFECT, EPIDEMIC, EPIDEMIC_STATS,
 				INFECT_STATS, CARD_STATS, N_COMMANDS};
 command_t parse_command(const std::string &command);
@@ -90,7 +94,7 @@ std::ostream& operator<< (std::ostream &out,
 		[RED] = "\e[41m",
 		[BLUE] = "\e[44m",
 		[BLACK] = "\e[100m",
-		[EVENT] = "\\e[42m",
+		[EVENT] = "\e[42m",
 		[N_COLORS] = "\e[49m"
 	};
 	
@@ -107,8 +111,9 @@ std::vector<std::string> get_cards(std::istream &in)
 	return ret;
 }
 
-int run(std::istream& in)
+int run(const std::string &script)
 {
+	std::istream &in = std::cin;
 	auto input_with_default = [&in](const std::string &message, auto def)
 	{
 		std::cout << message << " [" << def << "]: ";
@@ -168,153 +173,172 @@ int run(std::istream& in)
 		return ret;
 	};
 	
-	
-	std::string command;
-	std::cout << "(pandemic - don't forget to record initial draws and infects) ";
-	while(in >> command)
+	Console::registerArgCompletionFunction([&cities](const std::string &text)
 	{
-		switch(parse_command(command))
+		auto range = cities.equal_range(text);
+		std::vector<std::string> ret;
+		if(std::distance(range.first, range.second) > 1)
+			ret.push_back("");
+		for(auto i = range.first; i != range.second; ++i)
 		{
-		case INFECT:
-			{
-				std::vector<std::string> infects = get_cards(in);
-				
-				for(const auto &infect : infects)
-				{
-					if(ambig(infect) != 1) continue;
-					
-					if(auto card = infection_deck.back().find(infect);
-					   card != infection_deck.back().end())
-					{
-						std::cout << "Infecting: " << *card << std::endl;
-						infection_discard.insert(std::move(*card));
-						infection_deck.back().erase(card);
-						if(infection_deck.back().size() == 0)
-							infection_deck.pop_back();
-					}
-					else
-					{
-						std::cout << "error: " << infect;
-						std::cout << " is not at the top of the deck." << std::endl;
-					}
-				}
-				
-				break;
-			}
-		case DRAW:
-			{
-				std::vector<std::string> draws = get_cards(in);
-				
-				for(const auto &draw : draws)
-				{
-					if(ambig(draw) != 1) continue;
-					
-					if(auto card = player_deck.find(draw);
-						card != player_deck.end())
-					{
-						std::cout << "Drew " << *card << std::endl;
-						player_drawn.insert(std::move(*card));
-						player_deck.erase(card);
-						n_draws++;
-					}
-					else
-					{
-						std::cout << "error: " << *player_drawn.find(draw);
-						std::cout << " was already drawn" << std::endl;
-					}
-				}
-				
-				std::cout << n_draws << " draws so far." << std::endl;
-				break;
-			}
-		case EPIDEMIC:
-			{
-				current_epidemics++;
-				n_draws++;
-				std::cout << "Epidemic " << current_epidemics << std::endl;
-				std::string infection;
-				while(true)
-				{
-					do
-					{
-						std::cout << "(infect from bottom) ";
-						in >> infection;
-					} while(ambig(infection) != 1);
-					
-					if(infection_deck.front().count(infection) == 0)
-						std::cout << "error: That card is not in the bottom deck" << std::endl;
-					else
-						break;
-				}
-				
-				auto card = infection_deck.front().find(infection);
-				std::cout << "Infecting " << *card << std::endl;
-				infection_discard.insert(std::move(*card));
-				infection_deck.push_back(std::move(infection_discard));
-				infection_discard.clear();
-			}
-		case EPIDEMIC_STATS:
-			{
-				std::cout << "Epidemics so far: " << current_epidemics << std::endl;
-				std::cout << "Draws left: " << total_cards - n_draws << std::endl;
-				std::cout << "Turns left: " << (total_cards - n_draws) / 2 << std::endl;
-				int safe_phase = 0;
-				if(current_epidemics < big_stacks)
-					safe_phase = current_epidemics * (cards_per_epidemic + 1);
-				else
-					safe_phase = big_stacks * (cards_per_epidemic + 1) +
-						(current_epidemics - big_stacks) * cards_per_epidemic;
-				
-				int next_phase = safe_phase + 
-							cards_per_epidemic + (current_epidemics < big_stacks);
-				
-				if(n_draws + 2 <= safe_phase)
-				{
-					std::cout << "No epidemics for " << safe_phase - n_draws;
-					std::cout << " more draws. (" << (safe_phase - n_draws) / 2;
-					std::cout << " turns)" << std::endl;
-				}
-				else if(n_draws + 2 <= next_phase)
-				{
-					std::cout << "Epidemic is in the next " << next_phase - n_draws;
-					std::cout << " draws (" << 200.0 / (next_phase - n_draws);
-					std::cout << "% chance to draw this turn) " << std::endl;
-				}
-				else if(n_draws + 1 == next_phase)
-				{
-					std::cout << "Epidemic will be the next card drawn, ";
-					std::cout << "followed by a 1/";
-					std::cout << (cards_per_epidemic + (current_epidemics < big_stacks));
-					std::cout << " chance of drawing another after" << std::endl;
-				}
-				
-				break;
-			}
-		case INFECT_STATS:
-			std::cout << "Infection Discard: {";
-			for(auto i : infection_discard)
-				std::cout << i << ", ";
-			std::cout << "}\n" << std::endl;
-			
-			std::cout << "The next infections are:" << std::endl;
-			for(auto i = infection_deck.rbegin(); i != infection_deck.rend(); ++i)
-			{
-				std::cout << "{";
-				for(auto j : *i)
-					std::cout << j << ", ";
-				std::cout << "}\n" << std::endl;
-			}
-			
-			break;
-		case CARD_STATS:
-			std::cout << "Infection Discard: ";
-			break;
-		default:
-			std::cout << "error: invalid command" << std::endl;
-			break;
+			ret.push_back(i->first);
 		}
 		
-		std::cout << "(pandemic) ";
+		return ret;
+	});
+	
+	Console console("(pandemic) ");
+	console.registerCommand("infect", [&](const Console::Arguments &args)
+	{
+		Console::Arguments infects(args.begin() + 1, args.end());
+		for(const auto &infect : infects)
+		{
+			if(ambig(infect) != 1) continue;
+			
+			if(auto card = infection_deck.back().find(infect);
+				card != infection_deck.back().end())
+			{
+				std::cout << "Infecting: " << *card << std::endl;
+				infection_discard.insert(std::move(*card));
+				infection_deck.back().erase(card);
+				if(infection_deck.back().size() == 0)
+					infection_deck.pop_back();
+			}
+			else
+			{
+				std::cout << "error: " << infect;
+				std::cout << " is not at the top of the deck." << std::endl;
+			}
+		}
+		return 0;
+	});
+	
+	console.registerCommand("draw", [&](const Console::Arguments &args)
+	{
+		Console::Arguments draws(args.begin() + 1, args.end());
+		for(const auto &draw : draws)
+		{
+			if(ambig(draw) != 1) continue;
+			
+			if(auto card = player_deck.find(draw);
+				card != player_deck.end())
+			{
+				std::cout << "Drew " << *card << std::endl;
+				player_drawn.insert(std::move(*card));
+				player_deck.erase(card);
+				n_draws++;
+			}
+			else
+			{
+				std::cout << "error: " << *player_drawn.find(draw);
+				std::cout << " was already drawn" << std::endl;
+			}
+		}
+		
+		std::cout << n_draws << " draws so far." << std::endl;
+		
+		return 0;
+	});
+	
+	console.registerCommand("epidemic", [&](const Console::Arguments &infections)
+	{
+		current_epidemics++;
+		n_draws++;
+		std::cout << "Epidemic " << current_epidemics << std::endl;
+		std::string infection;
+		if(infections.size() > 1)
+			infection = infections[1];
+		
+		while(true)
+		{
+			while(infection.empty() || ambig(infection) != 1)
+			{
+				std::cout << "(infect from bottom) ";
+				in >> infection;
+			}
+			
+			if(infection_deck.front().count(infection) == 0)
+				std::cout << "error: That card is not in the bottom deck" << std::endl;
+			else
+				break;
+		}
+		
+		auto card = infection_deck.front().find(infection);
+		std::cout << "Infecting " << *card << std::endl;
+		infection_discard.insert(std::move(*card));
+		infection_deck.push_back(std::move(infection_discard));
+		infection_discard.clear();
+		
+		return console.executeCommand("epidemic_stats");
+	});
+	
+	console.registerCommand("epidemic_stats", [&](const Console::Arguments&)
+	{
+		std::cout << "Epidemics so far: " << current_epidemics << std::endl;
+		std::cout << "Draws left: " << total_cards - n_draws << std::endl;
+		std::cout << "Turns left: " << (total_cards - n_draws) / 2 << std::endl;
+		int safe_phase = 0;
+		if(current_epidemics < big_stacks)
+			safe_phase = current_epidemics * (cards_per_epidemic + 1);
+		else
+			safe_phase = big_stacks * (cards_per_epidemic + 1) +
+				(current_epidemics - big_stacks) * cards_per_epidemic;
+		
+		int next_phase = safe_phase + 
+					cards_per_epidemic + (current_epidemics < big_stacks);
+		
+		if(n_draws + 2 <= safe_phase)
+		{
+			std::cout << "No epidemics for " << safe_phase - n_draws;
+			std::cout << " more draws. (" << (safe_phase - n_draws) / 2;
+			std::cout << " turns)" << std::endl;
+		}
+		else if(n_draws + 2 <= next_phase)
+		{
+			std::cout << "Epidemic is in the next " << next_phase - n_draws;
+			std::cout << " draws (" << 200.0 / (next_phase - n_draws);
+			std::cout << "% chance to draw this turn) " << std::endl;
+		}
+		else if(n_draws + 1 == next_phase)
+		{
+			std::cout << "Epidemic will be the next card drawn, ";
+			std::cout << "followed by a 1/";
+			std::cout << (cards_per_epidemic + (current_epidemics < big_stacks));
+			std::cout << " chance of drawing another after" << std::endl;
+		}
+		
+		return 0;
+	});
+	
+	console.registerCommand("infect_stats", [&](const Console::Arguments&)
+	{
+		std::cout << "Infection Discard: {";
+		for(auto i : infection_discard)
+			std::cout << i << ", ";
+		std::cout << "}\n" << std::endl;
+		
+		std::cout << "The next infections are:" << std::endl;
+		for(auto i = infection_deck.rbegin(); i != infection_deck.rend(); ++i)
+		{
+			std::cout << "{";
+			for(auto j : *i)
+				std::cout << j << ", ";
+			std::cout << "}\n" << std::endl;
+		}
+		
+		return 0;
+	});
+	
+	console.registerCommand("card_stats", [&](const Console::Arguments&)
+	{
+		return 0;
+	});
+	
+	//std::cout << "(pandemic - don't forget to record initial draws and infects) ";
+	
+	
+	while(console.readLine() != Console::Quit)
+	{
 	}
 	
 	return 0;
@@ -358,11 +382,5 @@ std::string color_to_string(color_t color)
 
 int main(int argc, char *argv[])
 {
-	if(argc > 1)
-	{
-		std::ifstream in(argv[1]);
-		return run(in);
-	}
-	else
-		return run(std::cin);
+	return run(argc > 1? argv[1]:"");
 }
