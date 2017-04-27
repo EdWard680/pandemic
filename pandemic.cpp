@@ -331,6 +331,24 @@ int run(const std::string &script)
 	
 	console.registerCommand("card_stats", [&](const Console::Arguments&)
 	{
+		std::cout << "Cards left in player deck: {";
+		int counts[N_COLORS] = {0};
+		for(auto card : player_deck)
+		{
+			++counts[card.second];
+			std::cout << card << ", ";
+		}
+		std::cout << "}\n" << std::endl;
+		
+		for(int color = 0; color < N_COLORS; color++)
+		{
+			std::cout << std::make_pair(std::to_string(counts[color]) + " " +
+										std::string(colors[color]),
+										color_t(color));
+			if(color < N_COLORS - 1)
+				std::cout << ", ";
+		}
+		std::cout << std::endl;
 		return 0;
 	});
 	
