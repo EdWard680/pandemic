@@ -8,6 +8,8 @@
 #include <iterator>
 #include <cctype>
 #include <algorithm>
+#include <readline/readline.h>
+#include <csignal>
 
 #include "Console.hpp"
 
@@ -111,6 +113,9 @@ std::vector<std::string> get_cards(std::istream &in)
 	return ret;
 }
 
+/* Main function. 
+ * Initializes a readline console and runs it through infinite loop
+ */
 int run(const std::string &script)
 {
 	std::istream &in = std::cin;
@@ -153,6 +158,7 @@ int run(const std::string &script)
 	auto player_deck(cities);
 	decltype(player_deck) player_drawn;
 	
+	// used to check ambiguous cards
 	auto ambig = [&cities](const std::string &draw)
 	{
 		auto range = cities.equal_range(draw);
@@ -173,6 +179,7 @@ int run(const std::string &script)
 		return ret;
 	};
 	
+	// handles completion
 	Console::registerArgCompletionFunction([&cities](const std::string &text)
 	{
 		auto range = cities.equal_range(text);
@@ -187,7 +194,17 @@ int run(const std::string &script)
 		return ret;
 	});
 	
+	/* Creates console. Registering lambdas to each command.
+	 */
 	Console console("(pandemic) ");
+	rl_bind_key(24, [](int count, int key)
+	{
+		std::string line("un");
+		line += rl_line_buffer;
+		rl_replace_line(line.c_str(), 0);
+		return 0;
+	});
+	
 	console.registerCommand("infect", [&](const Console::Arguments &args)
 	{
 		Console::Arguments infects(args.begin() + 1, args.end());
@@ -213,6 +230,31 @@ int run(const std::string &script)
 		return 0;
 	});
 	
+	console.registerCommand("uninfect", [&](const Console::Arguments &args)
+	{
+		Console::Arguments infects(args.begin() + 1, args.end());
+		for(const auto &infect : infects)
+		{
+			if(ambig(infect) != 1) continue;
+			
+			if(auto card = infection_discard.find(infect);
+				card != infection_discard.end())
+			{
+				std::cout << "Uninfecting: " << *card << std::endl;
+				infection_deck.back().insert(std::move(*card));
+				infection_discard.erase(card);
+				if(infection_discard.size() == 0)
+					infection_deck.pop_back();
+			}
+			else
+			{
+				std::cout << "error: " << infect;
+				std::cout << " is not in the discard pile." << std::endl;
+			}
+		}
+		return 0;
+	});
+	
 	console.registerCommand("draw", [&](const Console::Arguments &args)
 	{
 		Console::Arguments draws(args.begin() + 1, args.end());
@@ -232,6 +274,33 @@ int run(const std::string &script)
 			{
 				std::cout << "error: " << *player_drawn.find(draw);
 				std::cout << " was already drawn" << std::endl;
+			}
+		}
+		
+		std::cout << n_draws << " draws so far." << std::endl;
+		
+		return 0;
+	});
+	
+	console.registerCommand("undraw", [&](const Console::Arguments &args)
+	{
+		Console::Arguments draws(args.begin() + 1, args.end());
+		for(const auto &draw : draws)
+		{
+			if(ambig(draw) != 1) continue;
+			
+			if(auto card = player_drawn.find(draw);
+				card != player_drawn.end())
+			{
+				std::cout << "Undrew " << *card << std::endl;
+				player_deck.insert(std::move(*card));
+				player_drawn.erase(card);
+				n_draws--;
+			}
+			else
+			{
+				std::cout << "error: " << *player_deck.find(draw);
+				std::cout << " hasn't been drawn yet" << std::endl;
 			}
 		}
 		
@@ -268,6 +337,39 @@ int run(const std::string &script)
 		infection_discard.insert(std::move(*card));
 		infection_deck.push_back(std::move(infection_discard));
 		infection_discard.clear();
+		
+		return console.executeCommand("epidemic_stats");
+	});
+	
+	console.registerCommand("unepidemic", [&](const Console::Arguments &infections)
+	{
+		current_epidemics--;
+		n_draws--;
+		std::cout << "Epidemic " << current_epidemics << std::endl;
+		std::string infection;
+		if(infections.size() > 1)
+			infection = infections[1];
+		
+		while(true)
+		{
+			if(!infection.empty() && infection_deck.back().count(infection) == 0)
+				std::cout << "error: That card is not on top of the infect deck" << std::endl;
+			else if(!infection.empty())
+				break;
+			
+			do
+			{
+				std::cout << "uninfect from bottom: ";
+				in >> infection;
+			} while(infection.empty() || ambig(infection) != 1);
+		}
+		
+		auto card = infection_deck.back().find(infection);
+		std::cout << "Uninfecting " << *card << std::endl;
+		infection_deck.front().insert(std::move(*card));
+		std::copy(infection_deck.back().begin(), infection_deck.back().end(),
+			std::inserter(infection_discard, infection_discard.begin()));
+		infection_deck.pop_back();
 		
 		return console.executeCommand("epidemic_stats");
 	});
