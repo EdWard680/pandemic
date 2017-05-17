@@ -153,6 +153,8 @@ int run(const std::string &script)
 	int cards_per_epidemic = total_cards / epidemics;
 	int big_stacks = total_cards - cards_per_epidemic * epidemics;
 	int n_draws = -8;
+	int n_infects = 0;
+	int expected_infects = 9;
 	int current_epidemics = 0;
 	
 	auto player_deck(cities);
@@ -193,7 +195,7 @@ int run(const std::string &script)
 		
 		return ret;
 	});
-	
+
 	/* Creates console. Registering lambdas to each command.
 	 */
 	Console console("(pandemic) ");
@@ -217,6 +219,7 @@ int run(const std::string &script)
 			{
 				std::cout << "Infecting: " << *card << std::endl;
 				infection_discard.insert(std::move(*card));
+				n_infects++;
 				infection_deck.back().erase(card);
 				if(infection_deck.back().size() == 0)
 					infection_deck.pop_back();
@@ -454,11 +457,68 @@ int run(const std::string &script)
 		return 0;
 	});
 	
-	//std::cout << "(pandemic - don't forget to record initial draws and infects) ";
+	console.registerCommand("forecast", [&](const Console::Arguments& args)
+	{
+		Console::Arguments nexts(args.begin() + 1, args.end());
+		std::vector<deck_t::value_type> forecast;
+		for(const auto &next: nexts)
+		{
+			if(ambig(next) != 1)
+			{
+				console.executeCommand("infect_stats");
+				return Console::Error;
+			}
+			
+			if(auto card = infection_deck.back().find(next);
+				card != infection_deck.back().end())
+			{
+				forecast.push_back(std::move(*card));
+				infection_deck.back().erase(card);
+				if(infection_deck.back().size() == 0)
+					infection_deck.pop_back();
+			}
+			else
+			{
+				std::cout << "error: " << next;
+				std::cout << " is not at the top of the deck." << std::endl;
+				console.executeCommand("infect_stats");
+				return Console::Error;
+			}
+		}
+		
+		for(auto ri = forecast.rbegin(); ri != forecast.rend(); ++ri)
+			infection_deck.push_back({std::move(*ri)});
+		
+		return static_cast<Console::ReturnCode>
+					(console.executeCommand("infect_stats"));
+	});
 	
+	console.registerCommand("resilient_population",
+							[&](const Console::Arguments& args)
+	{
+		if(args.size() < 2)
+		{
+			std::cout << "Too few arguments" << std::endl;
+			return Console::Error;
+		}
+		
+		auto arg = args[1];
+		if(ambig(arg) != 1)
+			return Console::Error;
+		
+		if(auto card = infection_discard.find(arg);
+		   card != infection_discard.end())
+		{
+			std::cout << "Erasing " << *card << std::endl;
+			infection_discard.erase(card);
+		}
+		
+		return Console::Ok;
+	});
 	
 	while(console.readLine() != Console::Quit)
 	{
+		//console.setGreeting("(pandemic"s + reminder + ")");
 	}
 	
 	return 0;
