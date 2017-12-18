@@ -15,21 +15,7 @@
 
 using namespace CppReadline;
 
-enum command_t {HELP = 0, DRAW, INFECT, EPIDEMIC, EPIDEMIC_STATS,
-				INFECT_STATS, CARD_STATS, N_COMMANDS};
-command_t parse_command(const std::string &command);
-
-const char * commands[] = {
-	[HELP] = "help",
-	[DRAW] = "draw",
-	[INFECT] = "infect",
-	[EPIDEMIC_STATS] = "epidemic_stats",
-	[EPIDEMIC] = "epidemic",
-	[INFECT_STATS] = "infect_stats",
-	[CARD_STATS] = "card_stats"
-};
-
-enum color_t {YELLOW = 0, RED, BLUE, BLACK, EVENT, N_COLORS};
+enum color_t {YELLOW = 0, RED, BLUE, BLACK, PRODUCE_SUPPLIES, EVENT, N_COLORS};
 color_t to_color(const std::string &str);
 std::string color_to_string(color_t color);
 
@@ -38,6 +24,7 @@ const char * colors[] = {
 	[RED] = "red",
 	[BLUE] = "blue",
 	[BLACK] = "black",
+	[PRODUCE_SUPPLIES] = "produce_supplies",
 	[EVENT] = "event"
 };
 
@@ -96,6 +83,7 @@ std::ostream& operator<< (std::ostream &out,
 		[RED] = "\e[41m",
 		[BLUE] = "\e[44m",
 		[BLACK] = "\e[100m",
+		[PRODUCE_SUPPLIES] = "\e[45m",
 		[EVENT] = "\e[42m",
 		[N_COLORS] = "\e[49m"
 	};
@@ -131,8 +119,11 @@ int run(const std::string &script)
 		return ret;
 	};
 	
-	std::string city_file =
-		input_with_default("Input cities file", std::string("cities.txt"));
+	auto player_deck_file =
+		input_with_default("Input player deck file", std::string("player_deck.txt"));
+	
+	auto infection_deck_file = 
+		input_with_default("Input infection deck file", std::string("infection_deck.txt"));
 	
 	std::vector<std::string> events = 
 		input_with_default("Select funded events", std::vector<std::string>());
@@ -140,16 +131,16 @@ int run(const std::string &script)
 	int initial_draws = input_with_default("Select number of initial draws", 8);
 	int epidemics = input_with_default("Select number of epidemics", 5);
 	
-	auto cities = load_cities(city_file);
-	std::cout << cities.size() << " cities loaded" << std::endl;
+	auto player_deck = load_cities(player_deck_file);
+	std::cout << player_deck.size() << " player deck cards loaded" << std::endl;
 	
-	std::vector<decltype(cities)> infection_deck{cities};
-	decltype(cities) infection_discard;
+	std::vector<decltype(player_deck)> infection_deck{load_cities(infection_deck_file)};
+	decltype(player_deck) infection_discard;
 	
 	for(auto event : events)
-		cities.insert(std::make_pair(event, EVENT));
+		player_deck.insert(std::make_pair(event, EVENT));
 	
-	int total_cards = cities.size() - initial_draws + epidemics;
+	int total_cards = player_deck.size() - initial_draws + epidemics;
 	int cards_per_epidemic = total_cards / epidemics;
 	int big_stacks = total_cards - cards_per_epidemic * epidemics;
 	int n_draws = -8;
@@ -157,8 +148,8 @@ int run(const std::string &script)
 	int expected_infects = 9;
 	int current_epidemics = 0;
 	
-	auto player_deck(cities);
 	decltype(player_deck) player_drawn;
+	auto cities = player_deck;
 	
 	// used to check ambiguous cards
 	auto ambig = [&cities](const std::string &draw)
@@ -186,8 +177,6 @@ int run(const std::string &script)
 	{
 		auto range = cities.equal_range(text);
 		std::vector<std::string> ret;
-		if(std::distance(range.first, range.second) > 1)
-			ret.push_back("");
 		for(auto i = range.first; i != range.second; ++i)
 		{
 			ret.push_back(i->first);
@@ -214,8 +203,8 @@ int run(const std::string &script)
 		{
 			if(ambig(infect) != 1) continue;
 			
-			if(auto card = infection_deck.back().find(infect);
-				card != infection_deck.back().end())
+			auto card = infection_deck.back().find(infect);
+			if(card != infection_deck.back().end())
 			{
 				std::cout << "Infecting: " << *card << std::endl;
 				infection_discard.insert(std::move(*card));
@@ -240,8 +229,8 @@ int run(const std::string &script)
 		{
 			if(ambig(infect) != 1) continue;
 			
-			if(auto card = infection_discard.find(infect);
-				card != infection_discard.end())
+			auto card = infection_discard.find(infect);
+			if(card != infection_discard.end())
 			{
 				std::cout << "Uninfecting: " << *card << std::endl;
 				infection_deck.back().insert(std::move(*card));
@@ -265,8 +254,8 @@ int run(const std::string &script)
 		{
 			if(ambig(draw) != 1) continue;
 			
-			if(auto card = player_deck.find(draw);
-				card != player_deck.end())
+			auto card = player_deck.find(draw);
+			if(card != player_deck.end())
 			{
 				std::cout << "Drew " << *card << std::endl;
 				player_drawn.insert(std::move(*card));
@@ -291,9 +280,9 @@ int run(const std::string &script)
 		for(const auto &draw : draws)
 		{
 			if(ambig(draw) != 1) continue;
-			
-			if(auto card = player_drawn.find(draw);
-				card != player_drawn.end())
+							
+			auto card = player_drawn.find(draw);
+			if(card != player_drawn.end())
 			{
 				std::cout << "Undrew " << *card << std::endl;
 				player_deck.insert(std::move(*card));
@@ -469,8 +458,8 @@ int run(const std::string &script)
 				return Console::Error;
 			}
 			
-			if(auto card = infection_deck.back().find(next);
-				card != infection_deck.back().end())
+			auto card = infection_deck.back().find(next);
+			if(card != infection_deck.back().end())
 			{
 				forecast.push_back(std::move(*card));
 				infection_deck.back().erase(card);
@@ -506,8 +495,8 @@ int run(const std::string &script)
 		if(ambig(arg) != 1)
 			return Console::Error;
 		
-		if(auto card = infection_discard.find(arg);
-		   card != infection_discard.end())
+		auto card = infection_discard.find(arg);
+		if(card != infection_discard.end())
 		{
 			std::cout << "Erasing " << *card << std::endl;
 			infection_discard.erase(card);
@@ -537,14 +526,6 @@ deck_t load_cities(const std::string &filename)
 	}
 	
 	return ret;
-}
-
-command_t parse_command(const std::string &command)
-{
-	for(int i = 0; i < N_COMMANDS; i++)
-		if(command == commands[i]) return static_cast<command_t>(i);
-	
-	return N_COMMANDS;
 }
 
 color_t to_color(const std::string &str)

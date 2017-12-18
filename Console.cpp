@@ -194,14 +194,31 @@ namespace CppReadline {
 			{
 				return nullptr;
 			}
-			completionList = (char **)calloc(list_vec.size()+1, sizeof(char *));
-			for(int i = 0; i < list_vec.size(); i++)
+			
+
+			int prefix;
+			for(prefix = end - start; prefix < list_vec.front().size(); prefix++)
 			{
-				completionList[i] = (char *)calloc(list_vec[i].size()+1, sizeof(char));
-				std::strcpy(completionList[i], list_vec[i].c_str());
+				for(const auto& s : list_vec)
+					if(s[prefix] != list_vec.front()[prefix])
+						goto inner_break;
 			}
 			
-			completionList[list_vec.size()] = nullptr;
+inner_break:
+			
+			completionList = (char **)calloc(list_vec.size()+2, sizeof(char *));
+			
+			completionList[0] = (char *)calloc(prefix+1, sizeof(char));
+			std::strncpy(completionList[0], list_vec[0].c_str(), prefix);
+			completionList[0][prefix] = '\0';
+			
+			for(int i = 0; i < list_vec.size(); i++)
+			{
+				completionList[i+1] = (char *)calloc(list_vec[i].size()+1, sizeof(char));
+				std::strcpy(completionList[i+1], list_vec[i].c_str());
+			}
+			
+			completionList[list_vec.size() + 1] = nullptr;
 		}
 
         return completionList;
